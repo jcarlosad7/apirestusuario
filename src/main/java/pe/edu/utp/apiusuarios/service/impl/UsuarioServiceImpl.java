@@ -5,15 +5,23 @@ import java.util.Optional;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.Pageable;
+import org.springframework.security.authentication.AuthenticationManager;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import io.jsonwebtoken.JwtException;
 import lombok.extern.slf4j.Slf4j;
+import pe.edu.utp.apiusuarios.converter.UsuarioConverter;
+import pe.edu.utp.apiusuarios.dto.LoginRequestDTO;
+import pe.edu.utp.apiusuarios.dto.LoginResponseDTO;
 import pe.edu.utp.apiusuarios.entity.Usuario;
 import pe.edu.utp.apiusuarios.exception.GeneralServiceException;
 import pe.edu.utp.apiusuarios.exception.NoDataFoundException;
 import pe.edu.utp.apiusuarios.exception.ValidateServiceException;
 import pe.edu.utp.apiusuarios.repository.UsuarioRepository;
+import pe.edu.utp.apiusuarios.security.JwtService;
 import pe.edu.utp.apiusuarios.service.UsuarioService;
 import pe.edu.utp.apiusuarios.validator.UsuarioValidator;
 
@@ -22,6 +30,15 @@ import pe.edu.utp.apiusuarios.validator.UsuarioValidator;
 public class UsuarioServiceImpl implements UsuarioService {
 	@Autowired
 	private UsuarioRepository repository;
+	
+	@Autowired
+	private PasswordEncoder encoder;
+	@Autowired
+	private AuthenticationManager authenticationManager;
+	@Autowired
+	private JwtService jwtService;
+	@Autowired
+	private UsuarioConverter converter;
 
 	@Override
 	@Transactional(readOnly = true)
@@ -76,8 +93,8 @@ public class UsuarioServiceImpl implements UsuarioService {
 			}
 			Usuario registro=repository.findById(usuario.getId()).orElseThrow(()-> new NoDataFoundException("No existe el registro con ese Id"));
 			registro.setEmail(usuario.getEmail());
-			//String passEncode=encoder.encode(usuario.getPassword());
-			//registro.setPassword(passEncode);
+			String passEncode=encoder.encode(usuario.getPassword());
+			registro.setPassword(passEncode);
 			registro.setRol(usuario.getRol());
 			repository.save(registro);
 			return registro;
@@ -98,8 +115,8 @@ public class UsuarioServiceImpl implements UsuarioService {
 			if(reg.isPresent()) {
 				throw new ValidateServiceException("Ya existe un registro con el email "+usuario.getEmail());
 			}
-			//String passEncode=encoder.encode(usuario.getPassword());
-			//usuario.setPassword(passEncode);
+			String passEncode=encoder.encode(usuario.getPassword());
+			usuario.setPassword(passEncode);
 			usuario.setActivo(true);
 			Usuario registro =repository.save(usuario);
 			return registro;
@@ -122,6 +139,22 @@ public class UsuarioServiceImpl implements UsuarioService {
 			log.error(e.getMessage());
 			throw new GeneralServiceException(e.getMessage());
 		}		
+	}
+
+	@Override
+	public LoginResponseDTO login(LoginRequestDTO request) {
+		try {
+			authenticationManager.authenticate(new UsernamePasswordAuthenticationToken(request.getEmail(), request.getPassword()));
+			var usuario=repository.findByEmail(request.getEmail()).orElseThrow();
+			var jwtToken=jwtService.generateToken(usuario);
+			return new LoginResponseDTO(converter.fromEntity(usuario),jwtToken);
+		} catch (JwtException e) {
+			log.info(e.getMessage(),e);
+			throw new ValidateServiceException(e.getMessage());
+		}catch (Exception e) {
+			log.info(e.getMessage(),e);
+			throw new ValidateServiceException(e.getMessage());
+		}
 	}
 
 }
